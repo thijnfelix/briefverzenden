@@ -255,10 +255,9 @@ function PrijsBox({ prijs, loading }: { prijs: PostbodePrijs | null; loading: bo
     )
   }
 
-  const fmt = (cents: number | string) => {
-    const n = typeof cents === 'string' ? parseFloat(cents) : cents
-    // Postbode.nu returns amounts in cents
-    return (n / 100).toFixed(2).replace('.', ',')
+  const fmt = (amount: number | string) => {
+    const n = typeof amount === 'string' ? parseFloat(amount) : amount
+    return n.toFixed(2).replace('.', ',')
   }
 
   return (
@@ -514,7 +513,7 @@ export default function HomePage() {
                 Bezig met versturen…
               </span>
             ) : prijs ? (
-              `Verstuur Brief — € ${(prijs.total_in_vat / 100).toFixed(2).replace('.', ',')}`
+              `Verstuur Brief — € ${prijs.total_in_vat.toFixed(2).replace('.', ',')}`
             ) : (
               'Verstuur Brief'
             )}
