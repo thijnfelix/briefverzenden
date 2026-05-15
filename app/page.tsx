@@ -2,6 +2,27 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 
+// ── IndexedDB: store PDF before Stripe redirect ────────────────────────────────
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('briefverzenden', 1)
+    req.onupgradeneeded = () => req.result.createObjectStore('brieven')
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function storePdf(file: File) {
+  const db = await openDB()
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('brieven', 'readwrite')
+    tx.objectStore('brieven').put(file, 'pdf')
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface Address {
@@ -350,57 +371,33 @@ export default function HomePage() {
     setStatus({ type: 'loading' })
 
     try {
-      const formData = new FormData()
-      formData.append('pdf', pdf!)
-      formData.append('afzender', JSON.stringify(afzender))
-      formData.append('ontvanger', JSON.stringify(ontvanger))
-      formData.append('opties', JSON.stringify(options))
-      formData.append('email', email)
+      // Store PDF in IndexedDB so it survives the Stripe redirect
+      await storePdf(pdf!)
 
-      const res = await fetch('/api/verzend', { method: 'POST', body: formData })
+      // Create Stripe Checkout Session
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          afzender,
+          ontvanger,
+          opties: options,
+          paginas,
+          email,
+        }),
+      })
       const data = await res.json()
 
       if (!res.ok) throw new Error(data.error || 'Onbekende fout')
 
-      setStatus({
-        type: 'success',
-        message: `Je brief is aangeboden aan Postbode.nu. Referentie: ${data.referentie || 'onbekend'}`,
-      })
+      // Redirect to Stripe Checkout
+      window.location.href = data.url
     } catch (err: unknown) {
       setStatus({
         type: 'error',
         message: err instanceof Error ? err.message : 'Er ging iets mis. Probeer opnieuw.',
       })
     }
-  }
-
-  if (status.type === 'success') {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-white px-4">
-        <div className="max-w-md w-full text-center space-y-6">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
-            <svg className="h-10 w-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Brief verzonden!</h1>
-          <p className="text-gray-500">{status.message}</p>
-          <button
-            className="w-full rounded-xl bg-blue-600 py-4 font-semibold text-white hover:bg-blue-700"
-            onClick={() => {
-              setPdf(null)
-              setAfzender(emptyAddress())
-              setOntvanger(emptyAddress())
-              setOptions({ kleur: false, dubbelzijdig: false, aangetekend: false })
-              setEmail('')
-              setStatus({ type: 'idle' })
-            }}
-          >
-            Nog een brief versturen
-          </button>
-        </div>
-      </main>
-    )
   }
 
   return (
