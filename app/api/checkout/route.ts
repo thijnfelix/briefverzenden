@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
             currency: 'eur',
             unit_amount: amountInCents,
             product_data: {
-              name: 'Brief verzenden via Postbode.nu',
+              name: 'Brief verzenden via BriefVerzenden.nl',
               description: [
                 `${body.paginas || 1} pagina`,
                 body.opties.kleur ? 'Kleur' : 'Zwart-wit',

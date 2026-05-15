@@ -162,7 +162,7 @@ function SuccessContent() {
       </div>
 
       <p className="text-xs text-gray-400">
-        Verwerking via <span className="font-medium text-gray-500">Postbode.nu</span>
+        Verwerking door <span className="font-medium text-gray-500">BriefVerzenden.nl</span>
       </p>
     </div>
   )
