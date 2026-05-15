@@ -18,13 +18,12 @@ interface Options {
   aangetekend: boolean
 }
 
-interface PriceBreakdown {
-  verwerking: number
-  porto: number
-  kleurentoeslag: number
-  aangetekendToeslag: number
-  btw: number
-  totaal: number
+// Live price from Postbode.nu /postal/calculate
+interface PostbodePrijs {
+  total_ex_vat: number
+  vat: number
+  total_in_vat: number
+  elements: { description: string; price: string; vat: string }[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -36,23 +35,6 @@ const emptyAddress = (): Address => ({
   woonplaats: '',
   land: 'Nederland',
 })
-
-function berekenPrijs(options: Options, paginas: number): PriceBreakdown {
-  const verwerking = 0.95
-  const porto = options.aangetekend ? 8.45 : 1.05
-  const kleurentoeslag = options.kleur ? 0.5 * Math.max(1, paginas) : 0
-  const aangetekendToeslag = 0
-  const subtotaal = verwerking + porto + kleurentoeslag + aangetekendToeslag
-  const btw = Math.round(subtotaal * 0.21 * 100) / 100
-  const totaal = Math.round((subtotaal + btw) * 100) / 100
-  return { verwerking, porto, kleurentoeslag, aangetekendToeslag, btw, totaal }
-}
-
-function formatPostcode(raw: string): string {
-  const clean = raw.replace(/\s/g, '').toUpperCase()
-  if (clean.length >= 4) return clean.slice(0, 4) + ' ' + clean.slice(4, 6)
-  return clean
-}
 
 // ── Address Preview ────────────────────────────────────────────────────────────
 
@@ -256,27 +238,44 @@ function OptionRow({
 
 // ── Price Box ──────────────────────────────────────────────────────────────────
 
-function PrijsBox({ prijs }: { prijs: PriceBreakdown }) {
-  const row = (label: string, amount: number, muted = false) =>
-    amount > 0 ? (
-      <div className={`flex justify-between text-sm ${muted ? 'text-gray-400' : 'text-gray-600'}`}>
-        <span>{label}</span>
-        <span>€ {amount.toFixed(2).replace('.', ',')}</span>
+function PrijsBox({ prijs, loading }: { prijs: PostbodePrijs | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-center text-sm text-gray-400">
+        Prijs berekenen…
       </div>
-    ) : null
+    )
+  }
+
+  if (!prijs) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-center text-sm text-gray-400">
+        Upload een PDF om de prijs te berekenen.
+      </div>
+    )
+  }
+
+  const fmt = (cents: number | string) => {
+    const n = typeof cents === 'string' ? parseFloat(cents) : cents
+    // Postbode.nu returns amounts in cents
+    return (n / 100).toFixed(2).replace('.', ',')
+  }
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 space-y-2">
-      {row('Verwerking via Postbode.nu', prijs.verwerking)}
-      {row('Porto', prijs.porto)}
-      {row('Kleurentoeslag', prijs.kleurentoeslag)}
+      {prijs.elements.map((el, i) => (
+        <div key={i} className="flex justify-between text-sm text-gray-600">
+          <span>{el.description}</span>
+          <span>€ {fmt(el.price)}</span>
+        </div>
+      ))}
       <div className="flex justify-between text-sm text-gray-400">
-        <span>BTW (21%)</span>
-        <span>€ {prijs.btw.toFixed(2).replace('.', ',')}</span>
+        <span>BTW</span>
+        <span>€ {fmt(prijs.vat)}</span>
       </div>
       <div className="mt-1 border-t border-gray-200 pt-3 flex justify-between font-bold text-gray-900">
         <span>Totaal</span>
-        <span>€ {prijs.totaal.toFixed(2).replace('.', ',')}</span>
+        <span>€ {fmt(prijs.total_in_vat)}</span>
       </div>
       <p className="pt-1 text-xs text-gray-400">
         Prijzen zijn gebaseerd op een uurtarief voor verwerking en verzending.
@@ -303,8 +302,37 @@ export default function HomePage() {
   })
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const [email, setEmail] = useState('')
+  const [prijs, setPrijs] = useState<PostbodePrijs | null>(null)
+  const [prijsLoading, setPrijsLoading] = useState(false)
 
-  const prijs = berekenPrijs(options, paginas)
+  // Fetch live price from Postbode.nu whenever options or page count change
+  useEffect(() => {
+    if (!pdf) { setPrijs(null); return }
+
+    const controller = new AbortController()
+    setPrijsLoading(true)
+
+    fetch('/api/prijs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pages: paginas,
+        kleur: options.kleur,
+        dubbelzijdig: options.dubbelzijdig,
+        aangetekend: options.aangetekend,
+        land: ontvanger.land,
+      }),
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.total_in_vat !== undefined) setPrijs(data)
+      })
+      .catch(() => {})
+      .finally(() => setPrijsLoading(false))
+
+    return () => controller.abort()
+  }, [pdf, paginas, options, ontvanger.land])
 
   const isValid =
     !!pdf &&
@@ -449,7 +477,7 @@ export default function HomePage() {
         <section className="space-y-4">
           <StepLabel n={4} label="Afrekenen" />
 
-          <PrijsBox prijs={prijs} />
+          <PrijsBox prijs={prijs} loading={prijsLoading} />
 
           {/* Email — only at checkout */}
           <div>
@@ -485,8 +513,10 @@ export default function HomePage() {
                 </svg>
                 Bezig met versturen…
               </span>
+            ) : prijs ? (
+              `Verstuur Brief — € ${(prijs.total_in_vat / 100).toFixed(2).replace('.', ',')}`
             ) : (
-              `Verstuur Brief — € ${prijs.totaal.toFixed(2).replace('.', ',')}`
+              'Verstuur Brief'
             )}
           </button>
 
