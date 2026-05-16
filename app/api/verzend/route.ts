@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 const POSTBODE_BASE = 'https://postbode.app/api/v2'
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   let session
   try {
-    session = await stripe.checkout.sessions.retrieve(sessionId)
+    session = await getStripe().checkout.sessions.retrieve(sessionId)
   } catch {
     return NextResponse.json({ error: 'Ongeldige betaalsessie.' }, { status: 400 })
   }

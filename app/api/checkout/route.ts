@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 
 const POSTBODE_BASE = 'https://postbode.app/api/v2'
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const baseUrl = req.headers.get('origin') || 'https://briefverzenden.nl'
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card', 'ideal'],
       mode: 'payment',
       customer_email: body.email,
